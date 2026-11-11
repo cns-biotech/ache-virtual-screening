@@ -34,7 +34,7 @@ Notes on each step:
 
 - **Units.** 1,265 records had no standardized unit (no value reported). 83 records were given in µg/mL and 8 had malformed unit strings. I excluded the µg/mL and malformed records: converting µg/mL to nM needs the molecular weight of every compound, and these 91 records are under 1% of the data. 
 - **Censored values.** I excluded 859 records with >, 12 with <, 2 with ~, 2 with >> and 21 with no relation recorded: 896 in total, all censored values with no measured IC50.
-- **Salts and mixtures.** 1,035 records contained several fragments. I kept the largest one. After converting to canonical SMILES, 113 of these molecules merged with molecules that were already in the dataset.
+- **Salts and mixtures.** 1,035 molecules contained several fragments. I kept the largest one. After converting to canonical SMILES, 113 of these molecules merged with molecules that were already in the dataset.
 - **Suspicious values.** 17 different molecules shared the same IC50 of 0.000005 nM (5 fM). That is far below the picomolar potencies reported even for the most potent AChE inhibitors, so I treated it as a curation artifact. These records fall outside the pIC50 range below and were removed at that step.
 - **pIC50 range.** I chose the range 3 to 11 by hand and report it here for transparency. It removed 130 molecules (6,174 to 6,044).
 
@@ -101,7 +101,7 @@ Molecules were grouped by their Bemis-Murcko scaffold (2,539 scaffolds for 6,044
 | Random 80/20 | 0.742 |
 | Scaffold 80/20 | 0.489 |
 
-Same model, same features, same seed. The random split overstates performance by 0.25 in R². ChEMBL contains large series of analogs — 144 molecules here reduce to a bare benzene scaffold, 77 to the tacrine core — and under a random split part of a series trains the model while the rest tests it, so the model is rewarded for recognizing a series it has already seen. The scaffold number describes performance on chemistry the model has not seen, and that is the number I report. The two groups of 144 are unrelated: only N molecules belong to both.
+Same model, same features, same seed. The random split overstates performance by 0.25 in R². ChEMBL contains large series of analogs — 144 molecules here reduce to a bare benzene scaffold, 77 to the tacrine core — and under a random split part of a series trains the model while the rest tests it, so the model is rewarded for recognizing a series it has already seen. The scaffold number describes performance on chemistry the model has not seen, and that is the number I report. The two groups of 144 are unrelated: no molecule belong to both.
 
 On the scaffold split, RMSE is 1.00 log units against 1.40 for a baseline that always predicts the mean training pIC50: a 29 percent reduction in error.
 
@@ -113,11 +113,102 @@ Predicted against true values shows the flattening typical of an averaging regre
 
 One fingerprint bit, bit 1048, carries 10.9 percent of the total feature importance, two and a half times the next feature. Decoding it with RDKit's bit-info map shows a 4-aminoquinoline motif — the core shared by tacrine and its analogs, the first drug class approved for Alzheimer's disease. 675 of the 6,044 molecules contain it, with a median pIC50 of 7.42 against 5.66 for the rest. The most important feature therefore corresponds to a known pharmacophore, which is consistent with the model learning real structure-activity relationships, although it may also reflect the size of this series. This last comparison is descriptive and uses the whole dataset, training molecules included, so it is not an independent validation.
 
+![](fig_bit1048.png)
 The remaining top features are a mixture of further bits and the descriptors LogP, MW and TPSA.
 
 ![QSAR](fig_qsar.png)
 
 A model that does not see similarity to donepezil reaches R² = 0.49 on unseen scaffolds, so structure carries much more information about potency than similarity to one drug.
+## Docking
+
+The model above works on structure alone and never looks at the protein. This section adds the
+structural side: it places molecules into the acetylcholinesterase active site and asks whether a
+docking score separates potent compounds from weak ones.
+
+### Structure
+
+Human acetylcholinesterase in complex with donepezil, PDB 4EY7, solved at 2.35 A. The crystal holds two
+copies of the protein. I kept chain A, which carries one complete copy of donepezil, 28 heavy atoms,
+matching the formula of donepezil in ChEMBL (CHEMBL502, C24H29NO3).
+
+Preparation removed the waters, the N-glycans, and the ethylene glycol and nitrate ions left from
+crystallization. Where a side chain was modelled in two conformations I kept the first. The model covers
+530 of the 543 residues of the mature protein and has two gaps, residues 259 to 264 and 495 to 497. Both
+lie in surface loops, 29.8 and 36.5 A from the center of the bound donepezil, so neither touches the
+binding site and I did not rebuild them.
+
+Hydrogens were added with Open Babel at pH 7.4, which leaves aspartate and glutamate deprotonated and
+lysine and arginine protonated. The protein goes from 4,130 heavy atoms to 8,148 atoms in total.
+
+### Redocking
+
+Before docking anything new, the method has to reproduce something known. I rebuilt donepezil from its
+SMILES string, generated a conformer with ETKDG, minimized it with MMFF, and docked it back into the
+site using a search box built around the crystal ligand and extended by 4 A.
+
+Starting from SMILES rather than from the crystal coordinates is deliberate. Handing the program the
+answer would test only the search for a position, not the procedure that will be applied to molecules
+whose structures are unknown.
+
+The top pose scores -11.81 kcal/mol and sits 0.80 A from the crystallographic ligand. The second pose is
+also within 1.08 A. The accepted threshold for a successful redocking is 2 A, so the method passes.
+RMSD is computed in place, without superposing the two molecules, and accounts for the symmetry of the
+aromatic rings.
+
+![Redocking](fig_redock.png)
+
+### Screening
+
+From the 6,044 curated molecules I took the 50 with the highest pIC50 and the 50 with the lowest and
+docked each one with the same receptor and the same box. One molecule, CHEMBL1203984, could not be
+embedded in three dimensions by ETKDG and was dropped, leaving 99.
+
+The two groups are far apart by design: pIC50 from 9.57 to 10.96 among the actives against 3.00 to 3.20
+among the inactives, more than six orders of magnitude in concentration. This is an easy discrimination
+task and the numbers below should be read with that in mind.
+
+| | n | median pIC50 | median MW | mean score | median score |
+|---|---|---|---|---|---|
+| Active | 50 | 10.49 | 434.9 | -11.08 | -11.41 |
+| Inactive | 49 | 3.08 | 355.4 | -9.37 | -9.93 |
+
+Ranking the 99 molecules by docking score gives ROC-AUC 0.766 and PR-AUC 0.799 against a baseline of
+0.505 set by the fraction of actives. Four of the five best scoring molecules have a measured pIC50
+above 10, so the top of the list is enriched in real inhibitors, which is what a screen is for.
+
+The best scoring molecule is CHEMBL4214707 at -14.29 kcal/mol, with a measured pIC50 of 10.68.
+
+![Top hit](fig_tophit.png)
+
+### How much of that is just size
+
+The Vina scoring function sums contributions over pairs of atoms, so a larger molecule tends to score
+better simply by having more atoms, and the actives here are heavier than the inactives, 435 against 355
+daltons at the median. That makes the control necessary rather than optional.
+
+Score correlates more strongly with molecular weight (Spearman rho = -0.614, p = 1.4e-11) than with
+potency (rho = -0.449, p = 3.1e-06). Molecular weight on its own separates the two groups with ROC-AUC
+0.730, and the number of heavy atoms with 0.723, against 0.766 for the docking score. A descriptor that
+takes no time to compute therefore recovers most of the separation.
+
+Two corrections point the same way. Fitting score against the number of heavy atoms and ranking by the
+residual gives ROC-AUC 0.640. Partial rank correlation between score and pIC50 at fixed molecular weight
+is -0.392, down from -0.449. Ligand efficiency, the score divided by the number of heavy atoms, gives
+0.360, below chance, which means the actives are worse per atom than the inactives: their advantage
+comes from having more atoms rather than from a better fit per atom. Dividing by size overcorrects,
+which is why I report the regression residual as the main control.
+
+So docking does carry structural information beyond size, 0.640 is well above chance, but on this set
+most of the separation is available from molecular weight alone.
+
+### Settings
+
+smina 2020.12.10, built on AutoDock Vina 1.1.2. Search box built around the crystal ligand with
+--autobox_add 4. Exhaustiveness 16 for the redocking of donepezil, where one molecule is cheap and
+precision matters, and 8, the AutoDock Vina default, for the 99 screened molecules. Random seed 42
+throughout. Ligands were built from SMILES with RDKit ETKDG and minimized with MMFF before docking.
+Figures rendered with open source PyMOL.
+
 
 ## Limitations
 
@@ -131,8 +222,23 @@ A model that does not see similarity to donepezil reaches R² = 0.49 on unseen s
 - No hyperparameter search was performed and there is no validation set; the test set was used once, for the numbers reported here.
 - Every number comes from a single run with one seed, so I cannot give a confidence interval.
 
+- Docking was run on a single rigid receptor conformation. Acetylcholinesterase has a flexible gorge, and
+  side chains that would move to accommodate a ligand cannot do so here.
+- Each molecule was docked once, from one starting conformer, with one random seed, so no uncertainty is
+  attached to any individual score.
+- The screening set is the two extremes of the potency range. Performance on molecules of intermediate
+  potency, which is where a screen actually has to work, is not measured here.
+- The actives are heavier than the inactives, and docking scores grow with molecular size, so part of the
+  separation reflects size rather than binding. The size corrected numbers are reported above.
+- Protonation states were assigned by a rule based tool at a single pH and were not checked by hand for
+  individual ligands.
+  
 ## Reproducing
 
 All results use random_state = 0. Run with scikit-learn 1.6.1 and rdkit 2026.09.1
 
 Open ache_virtual_screening.ipynb in Google Colab and run all cells. ChEMBL is updated regularly, so the numbers may differ slightly from the ones above.
+
+Docking used smina 2020.12.10 and Open Babel 3.1.0, installed with conda into a separate environment, and
+open source PyMOL for the figures. The screening run takes about four hours on the two cores of a free
+Colab instance.
