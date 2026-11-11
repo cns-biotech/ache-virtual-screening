@@ -113,7 +113,8 @@ Predicted against true values shows the flattening typical of an averaging regre
 
 One fingerprint bit, bit 1048, carries 10.9 percent of the total feature importance, two and a half times the next feature. Decoding it with RDKit's bit-info map shows a 4-aminoquinoline motif — the core shared by tacrine and its analogs, the first drug class approved for Alzheimer's disease. 675 of the 6,044 molecules contain it, with a median pIC50 of 7.42 against 5.66 for the rest. The most important feature therefore corresponds to a known pharmacophore, which is consistent with the model learning real structure-activity relationships, although it may also reflect the size of this series. This last comparison is descriptive and uses the whole dataset, training molecules included, so it is not an independent validation.
 
-![](fig_bit1048.png)
+![Bit1048](fig_bit1048.png)
+
 The remaining top features are a mixture of further bits and the descriptors LogP, MW and TPSA.
 
 ![QSAR](fig_qsar.png)
@@ -221,7 +222,6 @@ Figures rendered with open source PyMOL.
 - Impurity-based feature importances in a Random Forest favor continuous features over binary bits, so the position of the descriptors in the ranking should be read with care.
 - No hyperparameter search was performed and there is no validation set; the test set was used once, for the numbers reported here.
 - Every number comes from a single run with one seed, so I cannot give a confidence interval.
-
 - Docking was run on a single rigid receptor conformation. Acetylcholinesterase has a flexible gorge, and
   side chains that would move to accommodate a ligand cannot do so here.
 - Each molecule was docked once, from one starting conformer, with one random seed, so no uncertainty is
@@ -237,7 +237,7 @@ Figures rendered with open source PyMOL.
 
 All results use random_state = 0. Run with scikit-learn 1.6.1 and rdkit 2026.09.1
 
-Open ache_virtual_screening.ipynb in Google Colab and run all cells. ChEMBL is updated regularly, so the numbers may differ slightly from the ones above.
+Open ache_virtual_screening.ipynb in Google Colab and run all cells. The docking section is reproduced by ache_docking.ipynb in the same way. ChEMBL is updated regularly, so the numbers may differ slightly from the ones above.
 
 Docking used smina 2020.12.10 and Open Babel 3.1.0, installed with conda into a separate environment, and
 open source PyMOL for the figures. The screening run takes about four hours on the two cores of a free
